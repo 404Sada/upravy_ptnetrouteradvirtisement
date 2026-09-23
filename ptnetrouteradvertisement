@@ -1,0 +1,231 @@
+#!/usr/bin/env python3
+import csv
+import multiprocessing
+import os
+import sys
+import time
+import warnings
+from src.csv_process import create_csv, del_tmp_csv
+from ptlibs import ptprinthelper
+from src.utils import parse_arguments, ValidationUtils, block_and_restore
+from src.active_scanner import ActiveScanner
+from src.passive_scanner import PassiveScanner
+from src.packet_analyzer import NodeRoleAnalyzer, VulnerabilityAnalyzer
+from ptlibs.ptjsonlib import PtJsonLib
+from src.non_json_output import NonJsonOutput
+from src.json_output import JsonOutput
+
+# Suppress FutureWarning messages
+warnings.simplefilter(action='ignore', category=FutureWarning)
+warnings.filterwarnings("ignore")
+warnings.simplefilter("ignore")
+sys.stderr = open(os.devnull, 'w')
+
+create_csv("src/tmp")
+args = parse_arguments()
+
+activescanner_object = ActiveScanner(
+    args.d, args.ai, args.i, args.smac, args.dmac, args.sip, args.dip, 
+    args.M, args.O, args.H, args.P, args.res, args.snac, args.prf, 
+    args.rlt, args.rcht, args.rtrt, args.chl, 
+    args.prefix, args.L, args.A, args.raf, args.pd, args.vlt, args.plt, 
+    args.mtu, args.dnssl, args.rdnss, args.ri, args.dnslt, 
+    args.f, args.fi,
+    args.pref64, args.pref64lt, args.plc
+)
+passivescanner_object = PassiveScanner(args.i, args.d, args.smac)
+
+def write_time_to_csv(start_time, end_time):
+    with open('src/tmp/start_end_mode.csv', 'a', newline='') as csvfile:
+        csvwriter = csv.writer(csvfile)
+        csvwriter.writerow([time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(start_time))])
+        csvwriter.writerow([time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(end_time))])
+
+try:
+    if not args.j and not args.less:
+        NonJsonOutput.print_box("The tool is running...")
+    ValidationUtils.configure_ipv6_rules(args.nofwd, True)
+
+    # Shared flag to indicate if the signal has been handled
+    signal_handled = multiprocessing.Value('b', False)
+
+    # Capture the start time
+    start_time = time.time()
+
+    def run_send_ra_packet():
+        try:
+            activescanner_object.send_ra_packet()
+        except Exception as e:
+            if not args.j:
+                ptprinthelper.ptprint(f"An error occurred in sending RA function: {e}", "ERROR")
+            else:
+                # JSON error reporting
+                pt_json_lib = PtJsonLib()
+                pt_json_lib.set_status("error", "Error in sending RA function")
+                pt_json_lib.end_error(message=str(e), condition=True)
+                print(pt_json_lib.get_result_json())
+    
+    def run_send_flood_ra_packet():
+        try:
+            activescanner_object.send_flood_ra_packet()
+          
+        except Exception as e:
+            if not args.j:
+                ptprinthelper.ptprint(f"An error occurred in sending RA function: {e}", "ERROR")
+            else:
+                # JSON error reporting
+                pt_json_lib = PtJsonLib()
+                pt_json_lib.set_status("error", "Error in sending RA function")
+                pt_json_lib.end_error(message=str(e), condition=True)
+                print(pt_json_lib.get_result_json())
+
+    def run_sniff_duration():
+        try:
+            passivescanner_object.sniff_duration()
+        except Exception as e:
+            if not args.j:
+                ptprinthelper.ptprint(f"An error occurred in sniffing function: {e}", "ERROR")
+            else:
+                # JSON error reporting
+                pt_json_lib = PtJsonLib()
+                pt_json_lib.set_status("error", "Error in sniffing function")
+                pt_json_lib.end_error(message=str(e), condition=True)
+                print(pt_json_lib.get_result_json())
+    
+    if not args.f:
+        stop_events = [multiprocessing.Event() for _ in range(2)]
+        processes = []
+
+        try:
+            # Define processes
+            processes.append(multiprocessing.Process(target=run_send_ra_packet))
+            processes.append(multiprocessing.Process(target=run_sniff_duration))
+
+            # Start processes
+            for process in processes:
+                process.start()
+
+            # Wait for all processes to complete
+            for process in processes:
+                process.join()
+
+        except Exception as e:
+            if not args.j:
+                ptprinthelper.ptprint(f"An unexpected error occurred: {e}", "ERROR")
+            else:
+                # JSON error reporting
+                pt_json_lib = PtJsonLib()
+                pt_json_lib.set_status("error", "Unexpected error occurred")
+                pt_json_lib.end_error(message=str(e), condition=True)
+                print(pt_json_lib.get_result_json())
+
+        finally:
+            # Killing RA
+            activescanner_object.send_kill_ra_packet()
+
+            # Capture the end time on normal completion
+            end_time = time.time()
+            write_time_to_csv(start_time, end_time)
+            
+            # Clean up and finalize  
+            ValidationUtils.configure_ipv6_rules(args.nofwd, False)
+                   
+            try:
+                NodeRoleAnalyzer(args.smac, "src/tmp/time_all.csv", "src/tmp/RA.csv", "src/tmp/role_node.csv").analyze_node_role()       
+                vul = VulnerabilityAnalyzer("src/tmp/time_all.csv", "src/tmp/role_node.csv", "src/tmp/RA.csv", args.i, args.smac, args.sip, args.prefix, args.dnssl, args.rdnss, args.ri, pref64=args.pref64).analyze_vulnerabilities()
+
+                
+                if not args.j or args.less:
+                    if not args.less:
+                        NonJsonOutput.output_time_information("src/tmp/start_end_mode.csv", "src/tmp/time_all.csv")
+                    NonJsonOutput.output_vulnerabilities("src/tmp/role_node.csv", vul, args.less)
+
+                if args.j:
+                    json_output = JsonOutput()
+                    json_output.output_vulnerabilities('src/tmp/role_node.csv', vul, 'src/tmp/RA.csv')
+                    resulting_json = json_output.get_json_output()
+                    print(resulting_json)
+            except Exception as e:
+                if not args.j:
+                    ptprinthelper.ptprint(f"An error occurred during analysis: {e}", "ERROR")
+                else:
+                    # JSON error reporting
+                    pt_json_lib = PtJsonLib()
+                    pt_json_lib.set_status("error", "Analysis error")
+                    pt_json_lib.end_error(message=str(e), condition=True)
+                    print(pt_json_lib.get_result_json())
+                
+            if not args.n:
+                del_tmp_csv("./src/tmp")
+    
+    if args.f:
+
+        try:
+            processes = []
+
+            # Start processes that will run send_flood_ra_packet
+            if args.fi and args.fi > 0:
+                process = multiprocessing.Process(target=run_send_flood_ra_packet)
+                processes.append(process)
+                process.start()
+            else:
+                # Start 4 processes that will run send_flood_ra_packet
+                for _ in range(4):
+                    process = multiprocessing.Process(target=run_send_flood_ra_packet)
+                    processes.append(process)
+                    process.start()
+
+            # Start a process to show the statistics
+            statistics_process = multiprocessing.Process(target=activescanner_object.show_traffic_stats, args=(time.time(),))
+            statistics_process.start()
+
+            # Wait for duration seconds
+            time.sleep(args.d)
+
+            # Wait for all processes to finish
+            for process in processes:
+                process.terminate()
+                process.join()
+            statistics_process.join()
+
+            # After all threads complete, print the total packet count
+            if not args.j and not args.less:
+                ptprinthelper.ptprint(f"If CPU and memory ultilization is limited, the program can still continue running until all packets are sent", "WARNING")
+
+        except Exception as e:
+            if not args.j:
+                ptprinthelper.ptprint(f"An unexpected error occurred: {e}", "ERROR")
+            else:
+                # JSON error reporting
+                pt_json_lib = PtJsonLib()
+                pt_json_lib.set_status("error", "Unexpected error occurred")
+                pt_json_lib.end_error(message=str(e), condition=True)
+                print(pt_json_lib.get_result_json())
+        
+        finally:
+            block_and_restore(args.i) # function to kill flooding attack when it runs forever
+            activescanner_object.send_kill_ra_packet() 
+            if not args.j and not args.less:
+                ptprinthelper.ptprint("Cleaning and restoring configuration", "INFO")
+                ptprinthelper.ptprint("The flood attack has finished", "INFO")
+
+            # Capture the end time on normal completion
+            end_time = time.time()
+            write_time_to_csv(start_time, end_time)
+            
+            # Clean up and finalize  
+            ValidationUtils.configure_ipv6_rules(args.nofwd, False)
+                     
+            if not args.n:
+                del_tmp_csv("./src/tmp")
+        
+
+except Exception as e:
+    if not args.j:
+        ptprinthelper.ptprint(f"An unexpected error occurred at the top level: {e}", "ERROR")
+    else:
+        # JSON error reporting
+        pt_json_lib = PtJsonLib()
+        pt_json_lib.set_status("error", "Unexpected error at the top level")
+        pt_json_lib.end_error(message=str(e), condition=True)
+        print(pt_json_lib.get_result_json())  

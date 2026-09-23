@@ -1,0 +1,10 @@
+certifi==2024.12.14
+charset-normalizer==3.4.0
+idna==3.10
+netifaces==0.11.0
+psutil==6.1.1
+ptlibs==1.0.15
+requests==2.32.3
+requests-toolbelt==1.0.0
+scapy==2.6.1
+urllib3==2.3.0
