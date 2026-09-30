@@ -6,7 +6,7 @@ def create_csv(directory):
     '''Create the initial CSV files'''
 
     with open(f"{directory}/RA.csv", 'w', newline='') as csvfile:
-        fieldnames = ['src_MAC', 'src_IP', 'M_flag', 'O_flag', 'H_flag', 'P_flag', 'Res_flag', 'SNAC_flag', 'Prf_flag', 'Router_lifetime', 'Reachable_time', 'Retrans_timer', 'Cur_hop_limit', 'Prefix', 'L_flag', 'A_flag', 'RAF_flag', 'PD_flag', 'Valid_lifetime', 'Preferred_lifetime', 'DNS_search_list', 'DNS_server', 'MTU', 'Route_info', 'Pref64']
+        fieldnames = ['src_MAC', 'src_IP', 'M_flag', 'O_flag', 'H_flag', 'P_flag', 'Res_flag', 'SNAC_flag', 'Prf_flag', 'Router_lifetime', 'Reachable_time', 'Retrans_timer', 'Cur_hop_limit', 'Prefix', 'L_flag', 'A_flag', 'RAF_flag', 'PD_flag', 'Pres1', 'Pres2', 'Valid_lifetime', 'Preferred_lifetime', 'DNS_search_list', 'DNS_server', 'MTU', 'Route_info', 'Pref64', 'RA_flags', 'HA_info', 'Captive_portal']
         writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
         writer.writeheader()
     
@@ -137,7 +137,7 @@ class Time:
 
 
 class Router:
-    def __init__(self, src_MAC:str, src_IP:str, M_flag:str, O_flag:str, H_flag:str, P_flag:str, Res_flag:str, SNAC_flag:str, Prf_flag:str, Router_lifetime:int, Reachable_time:int, Retrans_timer:int, Cur_hop_limit:int, Prefix:str, L_flag:str, A_flag:str, RAF_flag:str, PD_flag:str, Valid_lifetime:int, Preferred_lifetime:int, DNS_search_list:list, DNS_server:list, MTU:int, Route_info:dict, Pref64:dict=None):
+    def __init__(self, src_MAC:str, src_IP:str, M_flag:str, O_flag:str, H_flag:str, P_flag:str, Res_flag:str, SNAC_flag:str, Prf_flag:str, Router_lifetime:int, Reachable_time:int, Retrans_timer:int, Cur_hop_limit:int, Prefix:str, L_flag:str, A_flag:str, RAF_flag:str, PD_flag:str, Pres1:str, Pres2:str, Valid_lifetime:int, Preferred_lifetime:int, DNS_search_list:list, DNS_server:list, MTU:int, Route_info:dict, Pref64:dict=None, RA_flags:str=None, HA_info:dict=None, Captive_portal:str=None):
         self.smac = src_MAC
         self.sip = src_IP
 
@@ -158,6 +158,8 @@ class Router:
         self.A_flag = A_flag
         self.RAF_flag = RAF_flag
         self.PD_flag = PD_flag
+        self.Pres1 = Pres1
+        self.Pres2 = Pres2
         self.Valid_lifetime = Valid_lifetime
         self.Preferred_lifetime = Preferred_lifetime
 
@@ -166,6 +168,9 @@ class Router:
         self.MTU = MTU
         self.Route_info = Route_info
         self.Pref64 = Pref64 if Pref64 is not None else {}
+        self.RA_flags = RA_flags if RA_flags is not None else ""
+        self.HA_info = HA_info if HA_info is not None else {}
+        self.Captive_portal = Captive_portal if Captive_portal is not None else ""
     
     def save_packet(self, directory:str):
         # Function to save time and packet to a CSV file
@@ -173,7 +178,7 @@ class Router:
             file_writer = csv.writer(csvfile)
             csvfile.seek(0)  # move the file pointer to the beginning of the file
                 
-            fieldnames = ['src_MAC', 'src_IP', 'M_flag', 'O_flag', 'H_flag', 'P_flag', 'Res_flag', 'SNAC_flag', 'Prf_flag', 'Router_lifetime', 'Reachable_time', 'Retrans_timer', 'Cur_hop_limit', 'Prefix', 'L_flag', 'A_flag', 'RAF_flag', 'PD_flag', 'Valid_lifetime', 'Preferred_lifetime', 'DNS_search_list', 'DNS_server', 'MTU', 'Route_info', 'Pref64']
+            fieldnames = ['src_MAC', 'src_IP', 'M_flag', 'O_flag', 'H_flag', 'P_flag', 'Res_flag', 'SNAC_flag', 'Prf_flag', 'Router_lifetime', 'Reachable_time', 'Retrans_timer', 'Cur_hop_limit', 'Prefix', 'L_flag', 'A_flag', 'RAF_flag', 'PD_flag', 'Pres1', 'Pres2', 'Valid_lifetime', 'Preferred_lifetime', 'DNS_search_list', 'DNS_server', 'MTU', 'Route_info', 'Pref64', 'RA_flags', 'HA_info', 'Captive_portal']
             writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
             
             writer.writerow({
@@ -195,13 +200,18 @@ class Router:
                 'A_flag': self.A_flag,
                 'RAF_flag': self.RAF_flag,
                 'PD_flag': self.PD_flag,
+                'Pres1': self.Pres1,
+                'Pres2': self.Pres2,
                 'Valid_lifetime': self.Valid_lifetime,
                 'Preferred_lifetime': self.Preferred_lifetime,
                 'DNS_search_list': self.DNS_search_list,
                 'DNS_server': self.DNS_server,
                 'MTU': self.MTU,
                 'Route_info': self.Route_info,
-                'Pref64': self.Pref64
+                'Pref64': self.Pref64,
+                'RA_flags': self.RA_flags,
+                'HA_info': self.HA_info,
+                'Captive_portal': self.Captive_portal
             })
     
 class Flood:

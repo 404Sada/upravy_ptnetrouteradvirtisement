@@ -123,7 +123,7 @@ class ValidationUtils:
                 network = ipaddress.IPv6Network(value, strict=False)
                 prefix_to_plc = {96: 0, 64: 1, 56: 2, 48: 3, 40: 4, 32: 5}
                 if network.prefixlen not in prefix_to_plc:
-                    self.errors.append(f"Invalid PREF64 prefix length: /{network.prefixlen}. Allowed prefix lengths according to RFC 8781 are /96, /64, /56, /48, /40, /32")
+                    self.errors.append(f"Invalid PREF64 prefix length: /{network.prefixlen}. Allowed prefix lengths according are /96, /64, /56, /48, /40, /32")
                     return "Invalid parameter"
                 self.derived_plc = prefix_to_plc[network.prefixlen]
                 return str(network.network_address)
@@ -166,6 +166,63 @@ class ValidationUtils:
             self.errors.append(f"Invalid value for -fi: {value}. It must be a valid positive number in milliseconds")
             return "Invalid parameter"
         return fvalue
+
+    def validate_prefix_res1(self, value):
+        try:
+            int_value = int(value, 0)
+            if 0 <= int_value <= 15:
+                return int_value
+            else:
+                self.errors.append(f"Invalid value for Prefix flags reserved bits: {value}. Allowed range is 0 to 15 (4 bits)")
+                return "Invalid parameter"
+        except ValueError:
+            self.errors.append(f"Invalid value for Prefix flags reserved bits: {value}. It must be an integer between 0 and 15")
+            return "Invalid parameter"
+
+    def validate_prefix_res2(self, value):
+        try:
+            int_value = int(value, 0)
+            if 0 <= int_value <= 4294967295:
+                return int_value
+            else:
+                self.errors.append(f"Invalid value for Prefix 32-bit reserved field: {value}. Allowed range is 0 to 4294967295 (32 bits / 4 bytes)")
+                return "Invalid parameter"
+        except ValueError:
+            self.errors.append(f"Invalid value for Prefix 32-bit reserved field: {value}. It must be an integer between 0 and 4294967295")
+            return "Invalid parameter"
+
+    def validate_ra_flags(self, value):
+        try:
+            int_value = int(value, 0)
+            if 0 <= int_value <= 281474976710655:  # 48 bits (0xFFFFFFFFFFFF)
+                return int_value
+            else:
+                self.errors.append(f"Invalid value for RA Flags: {value}. Allowed range is 0 to 281474976710655 (48 bits / 0x0 to 0xFFFFFFFFFFFF)")
+                return "Invalid parameter"
+        except ValueError:
+            self.errors.append(f"Invalid value for RA Flags: {value}. It must be an integer between 0 and 281474976710655 (or hex 0x0 to 0xFFFFFFFFFFFF)")
+            return "Invalid parameter"
+
+    def validate_ha_res(self, value):
+        try:
+            int_value = int(value, 0)
+            if 0 <= int_value <= 65535:
+                return int_value
+            else:
+                self.errors.append(f"Invalid value for Home Agent Reserved field: {value}. Allowed range is 0 to 65535 (16 bits / 0x0 to 0xFFFF)")
+                return "Invalid parameter"
+        except ValueError:
+            self.errors.append(f"Invalid value for Home Agent Reserved field: {value}. It must be an integer between 0 and 65535")
+            return "Invalid parameter"
+
+    def validate_captive_portal_uri(self, value):
+        if not value or not isinstance(value, str):
+            self.errors.append(f"Invalid Captive Portal URI: {value}. It must be a non-empty string.")
+            return "Invalid parameter"
+        if len(value.encode('utf-8')) > 2038:
+            self.errors.append(f"Invalid Captive Portal URI: URI length exceeds maximum allowed length of 2038 bytes.")
+            return "Invalid parameter"
+        return value
 
     def validate_ri_parameter(self, value, arg_name):
         pattern = re.compile(r'^prf=([^;]+);rtlifetime=([^;]+);prefix=([^;]+)$')
@@ -386,7 +443,7 @@ class CustomArgumentParser(argparse.ArgumentParser):
     def parse_args(self, args=None, namespace=None):
         args, unknown_args = self.parse_known_args(args, namespace)
 
-        list_prefixes = ["-d", "-ai", "-i", "-smac", "-dmac", "-sip", "-dip", "-M", "-O", "-H", "-P", "-res", "-snac", "-prf", "-rlt", "-rcht", "-rtrt", "-chl", "-prefix", "-L", "-A", "-raf", "-pd", "-vlt", "-plt", "-mtu", "-dnssl", "-rdnss", "-ri", "-pref64", "-pref64lt", "-plc", "-nofwd", "-j", "-n", "-f", "-fi", "-less"]
+        list_prefixes = ["-d", "-ai", "-i", "-smac", "-dmac", "-sip", "-dip", "-M", "-O", "-H", "-P", "-res", "-snac", "-prf", "-rlt", "-rcht", "-rtrt", "-chl", "-prefix", "-L", "-A", "-raf", "-pd", "-pres1", "-pres2", "-vlt", "-plt", "-mtu", "-dnssl", "-rdnss", "-ri", "-pref64", "-pref64lt", "-plc", "-raflags", "-hainfo", "-haprf", "-halt", "-hares", "-cportal", "-nofwd", "-j", "-n", "-f", "-fi", "-less"]
 
         if unknown_args:
             for arg in unknown_args:
@@ -422,6 +479,10 @@ class CustomArgumentParser(argparse.ArgumentParser):
                 self.utils.errors.append(f"Router Address flag (raf) is set but Prefix information is not inserted")
             if args.pd:
                 self.utils.errors.append(f"DHCPv6-PD flag (pd) is set but Prefix information is not inserted")
+            if args.pres1 is not None:
+                self.utils.errors.append(f"Prefix flags reserved bits (pres1) is inserted but Prefix information is not inserted")
+            if args.pres2 is not None:
+                self.utils.errors.append(f"Prefix 32-bit reserved field (pres2) is inserted but Prefix information is not inserted")
             if args.vlt:
                 self.utils.errors.append(f"Valid lifetime of prefix is inserted but Prefix information is not inserted")
             if args.plt:
@@ -433,6 +494,9 @@ class CustomArgumentParser(argparse.ArgumentParser):
         else:
             if args.plc is None and getattr(self.utils, 'derived_plc', None) is not None:
                 args.plc = self.utils.derived_plc
+
+        if not args.hainfo and (args.haprf is not None or args.halt is not None or args.hares is not None):
+            args.hainfo = True
             
         if args.f == "random":
             error_msg = "Inserted {} is not applied in the flood mode with type Random"
@@ -542,6 +606,8 @@ class CustomArgumentParser(argparse.ArgumentParser):
                 else:
                     self.utils.information.append(f"{flag} ({description}) flag is not set")
             
+            args.pres1 = self.utils.log_and_set_default(args.pres1, 0, "Prefix flags reserved bits (pres1) to perform", "No value for Prefix flags reserved bits is inserted. It is automatically generated: 0")
+            args.pres2 = self.utils.log_and_set_default(args.pres2, 0, "Prefix 32-bit reserved field (pres2) to perform", "No value for Prefix 32-bit reserved field is inserted. It is automatically generated: 0")
             args.vlt = self.utils.log_and_set_default(args.vlt, 300, "Valid lifetime of prefix (in seconds) to perform", "No value for valid lifetime of prefix is inserted. It is automatically generated: 300 s")
             args.plt = self.utils.log_and_set_default(args.plt, 300, "Preferred lifetime of prefix (in seconds) to perform", "No value for preferred lifetime of prefix is inserted. It is automatically generated: 300 s")
         if args.prefix is None:
@@ -579,6 +645,26 @@ class CustomArgumentParser(argparse.ArgumentParser):
 
         if args.pref64 is None:
             self.utils.warnings.append("No value for PREF64 prefix is inserted. The PREF64 option is not included")
+
+
+        if args.raflags is not None:
+            self.utils.information.append(f"RA Flags Option to perform: 0x{args.raflags:012x} ({args.raflags})")
+        if args.raflags is None:
+            self.utils.warnings.append("No value for RA Flags is inserted. The RA Flags option is not included")
+
+
+        if args.hainfo:
+            self.utils.information.append("Home Agent Information option is enabled")
+            args.haprf = self.utils.log_and_set_default(args.haprf, 0, "Home Agent Preference to perform", "No value for Home Agent Preference is inserted. It is automatically generated: 0")
+            args.halt = self.utils.log_and_set_default(args.halt, 300, "Home Agent Lifetime (in seconds) to perform", "No value for Home Agent Lifetime is inserted. It is automatically generated: 300 s")
+            args.hares = self.utils.log_and_set_default(args.hares, 0, "Home Agent Reserved field to perform", "No value for Home Agent Reserved field is inserted. It is automatically generated: 0")
+        else:
+            self.utils.warnings.append("Home Agent Information option is not included")
+
+        if args.cportal is not None:
+            self.utils.information.append(f"Captive-Portal URI to perform: {args.cportal}")
+        if args.cportal is None:
+            self.utils.warnings.append("No value for Captive-Portal URI is inserted. The Captive-Portal option is not included")
             
         # Duration and advertisement interval
         args.d = self.utils.log_and_set_default(args.d, 10, "Duration (in seconds) to perform", "No value for duration is inserted. It is automatically generated: 10 s")
@@ -680,6 +766,8 @@ def parse_arguments():
     parser.add_argument('-A', action="store_true", help="Address Configuration flag. When set, the prefix can be used for stateless address configuration")
     parser.add_argument('-raf', action="store_true", help="Router Address flag (R-bit). When set, it indicates that the prefix contains a complete IP address assigned to the sending router")
     parser.add_argument('-pd', action="store_true", help="DHCPv6 Prefix Delegation flag (P-bit). When set, it indicates that DHCPv6 Prefix Delegation is available and preferred")
+    parser.add_argument('-pres1', type=parser.utils.validate_prefix_res1, help="Reserved bits in Prefix flags (4 bits, 0-15 / 0x0-0xF)")
+    parser.add_argument('-pres2', type=parser.utils.validate_prefix_res2, help="Reserved 32-bit field in Prefix option (4 bytes, 0-4294967295 / 0x0-0xFFFFFFFF)")
     parser.add_argument('-vlt', type=partial(parser.utils.validate_non_negative_integer, arg_name='valid lifetime of prefix'), help="Valid Lifetime of prefix")
     parser.add_argument('-plt', type=partial(parser.utils.validate_non_negative_integer, arg_name='preferred lifetime of prefix'), help="Preferred Lifetime of prefix")
 
@@ -693,6 +781,18 @@ def parse_arguments():
     parser.add_argument('-pref64', type=parser.utils.validate_pref64_prefix, help="The NAT64 prefix to be advertised.")
     parser.add_argument('-pref64lt', type=partial(parser.utils.validate_non_negative_integer, arg_name='PREF64 lifetime'), help="Scaled Lifetime for the NAT64 prefix in seconds.")
     parser.add_argument('-plc', type=partial(parser.utils.validate_integer_in_range, arg_name='Prefix Length Code', min_value=0, max_value=5), help="Prefix Length Code (0-5).")
+
+    # IPv6 RA Flags Option parameters
+    parser.add_argument('-raflags', type=parser.utils.validate_ra_flags, help="IPv6 Router Advertisement Flags Option (48-bit bit field, 0 to 281474976710655 / 0x0 to 0xFFFFFFFFFFFF)")
+
+    # Home Agent Information Option parameters
+    parser.add_argument('-hainfo', action="store_true", help="Home Agent Information Option. When set, Home Agent Information option is included")
+    parser.add_argument('-haprf', type=partial(parser.utils.validate_integer_in_range, arg_name='Home Agent Preference', min_value=0, max_value=65535), help="Home Agent Preference (0-65535) for Home Agent Information option")
+    parser.add_argument('-halt', type=partial(parser.utils.validate_integer_in_range, arg_name='Home Agent Lifetime', min_value=0, max_value=65535), help="Home Agent Lifetime in seconds (0-65535) for Home Agent Information option")
+    parser.add_argument('-hares', type=parser.utils.validate_ha_res, help="Reserved 16-bit field (0-65535 / 0x0-0xFFFF) for Home Agent Information option")
+
+    # Captive-Portal Option parameters
+    parser.add_argument('-cportal', type=parser.utils.validate_captive_portal_uri, help="Captive-Portal Option. URI of the captive portal API endpoint (e.g. https://portal.example.com)")
     
     parser.add_argument('-nofwd', action="store_true", default=False, help="Do not allow packets to go through the sender (MiTM)")
     parser.add_argument('-j', action="store_true", default=False, help="Allow json output")
@@ -753,6 +853,8 @@ def get_help():
             ["-A", " Address Configuration flag. Prefix can be used for SLAAC when set. Default: 0 (Not set). Usable only together with -prefix."],
             ["-raf", " Router Address flag. Prefix contains complete IP address of the router when set. Default: 0 (Not set). Usable only together with -prefix."],
             ["-pd", " DHCPv6-PD flag. Indicates DHCPv6-PD availability/preference when set. Default: 0 (Not set). Usable only together with -prefix."],
+            ["-pres1", " Reserved bits in Prefix flags (4 bits). Allowed range: 0-15 (or 0x0-0xF). Default: 0. Usable only together with -prefix."],
+            ["-pres2", " Reserved 32-bit field in Prefix option (4 bytes). Allowed range: 0-4294967295 (or 0x0-0xFFFFFFFF). Default: 0. Usable only together with -prefix."],
             ["-vlt", " Valid Lifetime of prefix in seconds. Default: 300 s. Usable only together with -prefix."],
             ["-plt", " Preferred Lifetime of prefix in seconds. Default: 300 s. Usable only together with -prefix."]
         ]},
@@ -765,6 +867,18 @@ def get_help():
             ["-pref64", " The NAT64 prefix to be advertised. Not included if not set."],
             ["-pref64lt", " Scaled Lifetime for the NAT64 prefix in seconds. Default: 300s. Usable only with -pref64."],
             ["-plc", " Prefix Length Code (0-5). Defines the prefix length (0=/96, 1=/64, 2=/56, 3=/48, 4=/40, 5=/32). Default: 0. Usable only with -pref64."]
+        ]},
+        {"IPv6 RA Flags Option parameters": [
+            ["-raflags", " IPv6 Router Advertisement Flags Option. 48-bit flags value (0-281474976710655 / 0x0-0xFFFFFFFFFFFF). Not included if not set."]
+        ]},
+        {"Home Agent Information Option parameters": [
+            ["-hainfo", " Home Agent Information Option. Indicates inclusion of Home Agent Information. Not included if not set."],
+            ["-haprf", " Home Agent Preference (0-65535). Default: 0. Usable only with Home Agent Information option."],
+            ["-halt", " Home Agent Lifetime in seconds (0-65535). Default: 300 s. Usable only with Home Agent Information option."],
+            ["-hares", " Reserved 16-bit field (0-65535 / 0x0-0xFFFF). Default: 0. Usable only with Home Agent Information option."]
+        ]},
+        {"Captive-Portal Option parameters": [
+            ["-cportal", " Captive-Portal Option. URI of the captive portal API endpoint. Not included if not set."]
         ]},
         {"Other Option parameters": [
             ["-mtu", "    MTU advertised as an option. Not included if not set."],

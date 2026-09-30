@@ -104,6 +104,8 @@ The tool must be run under the <span style="color:red;">**root**</span> user in 
 | `-A`            | SLAAC address configuration flag.                                                          | `0` (Not set)              |
 | `-raf`          | Router Address flag (R-bit). Prefix contains complete IP address of the sending router.     | `0` (Not set)              |
 | `-pd`           | DHCPv6 Prefix Delegation flag (P-bit). Indicates DHCPv6-PD availability/preference.        | `0` (Not set)              |
+| `-pres1`        | Reserved bits in Prefix flags (4 bits, 0–15 / `0x0`–`0xF`).                                 | `0`                        |
+| `-pres2`        | Reserved 32-bit field in Prefix option (4 bytes, 0–4294967295 / `0x0`–`0xFFFFFFFF`).         | `0`                        |
 | `-vlt`          | Valid Lifetime of prefix in seconds.                                                       | `300 s`                    |
 | `-plt`          | Preferred Lifetime of prefix in seconds.                                                   | `300 s`                    |
 
@@ -120,6 +122,24 @@ The tool must be run under the <span style="color:red;">**root**</span> user in 
 | `-pref64`       | The NAT64 prefix to be advertised.                                                          | Not set                    |
 | `-pref64lt`     | Scaled Lifetime for the NAT64 prefix in seconds. Usable only with `-pref64`.                | `300 s`                    |
 | `-plc`          | Prefix Length Code (0-5) defining length (0=/96, 1=/64, 2=/56, 3=/48, 4=/40, 5=/32). Default: `0`. Usable only with `-pref64`. | `0` (/96)         |
+
+### IPv6 RA Flags Option Parameters
+| Parameter       | Description                                                                                 | Default Value              |
+|-----------------|---------------------------------------------------------------------------------------------|----------------------------|
+| `-raflags`      | IPv6 Router Advertisement Flags Option (RFC 5175). 48-bit bit field (`0` to `281474976710655` / `0x0` to `0xFFFFFFFFFFFF`). | Not set                    |
+
+### Home Agent Information Option Parameters
+| Parameter       | Description                                                                                 | Default Value              |
+|-----------------|---------------------------------------------------------------------------------------------|----------------------------|
+| `-hainfo`       | Home Agent Information Option (RFC 6275). Enables inclusion of the Home Agent Information option. | `0` (Not set)              |
+| `-haprf`        | Home Agent Preference (`0` to `65535`). Higher value indicates higher preference.           | `0`                        |
+| `-halt`         | Home Agent Lifetime in seconds (`0` to `65535`).                                            | `300 s`                    |
+| `-hares`        | Reserved 16-bit field (`0` to `65535` / `0x0` to `0xFFFF`).                                 | `0`                        |
+
+### Captive-Portal Option Parameters
+| Parameter       | Description                                                                                 | Default Value              |
+|-----------------|---------------------------------------------------------------------------------------------|----------------------------|
+| `-cportal`      | Captive-Portal Option (RFC 8910). URI string of the captive portal API endpoint.            | Not set                    |
 
 ### Other Parameters
 | Parameter       | Description                                                                                 | Default Value              |

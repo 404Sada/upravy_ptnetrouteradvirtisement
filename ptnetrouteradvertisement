@@ -28,10 +28,11 @@ activescanner_object = ActiveScanner(
     args.d, args.ai, args.i, args.smac, args.dmac, args.sip, args.dip, 
     args.M, args.O, args.H, args.P, args.res, args.snac, args.prf, 
     args.rlt, args.rcht, args.rtrt, args.chl, 
-    args.prefix, args.L, args.A, args.raf, args.pd, args.vlt, args.plt, 
+    args.prefix, args.L, args.A, args.raf, args.pd, args.pres1, args.pres2, args.vlt, args.plt, 
     args.mtu, args.dnssl, args.rdnss, args.ri, args.dnslt, 
     args.f, args.fi,
-    args.pref64, args.pref64lt, args.plc
+    args.pref64, args.pref64lt, args.plc,
+    args.raflags, args.hainfo, args.haprf, args.halt, args.hares, args.cportal
 )
 passivescanner_object = PassiveScanner(args.i, args.d, args.smac)
 

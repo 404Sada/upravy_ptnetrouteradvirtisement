@@ -5,7 +5,59 @@ from scapy.all import *
 from scapy.layers.inet import Ether, UDP
 from scapy.layers.dns import DNS, DNSQR, DNSRR
 from scapy.layers.llmnr import LLMNRQuery, LLMNRResponse
-from scapy.layers.inet6 import IPv6, ICMPv6ND_RA, ICMPv6NDOptSrcLLAddr, ICMPv6NDOptMTU, ICMPv6NDOptDNSSL, ICMPv6NDOptRDNSS, ICMPv6NDOptRouteInfo, ICMPv6NDOptAdvInterval, ICMPv6NDOptEFA, ICMPv6NDOptPrefixInfo, ICMPv6NDOptPREF64, ICMPv6EchoRequest, IPv6ExtHdrDestOpt, HBHOptUnknown, ICMPv6ND_RS, IPv6ExtHdrHopByHop, RouterAlert, ICMPv6MLQuery2, ICMPv6MLQuery
+from scapy.layers.inet6 import IPv6, ICMPv6ND_RA, ICMPv6NDOptSrcLLAddr, ICMPv6NDOptMTU, ICMPv6NDOptDNSSL, ICMPv6NDOptRDNSS, ICMPv6NDOptRouteInfo, ICMPv6NDOptAdvInterval, ICMPv6NDOptEFA, ICMPv6NDOptPrefixInfo, ICMPv6NDOptPREF64, ICMPv6NDOptHAInfo, ICMPv6EchoRequest, IPv6ExtHdrDestOpt, HBHOptUnknown, ICMPv6ND_RS, IPv6ExtHdrHopByHop, RouterAlert, ICMPv6MLQuery2, ICMPv6MLQuery, icmp6ndopts
+from scapy.fields import ByteEnumField, ByteField, BitField, StrField, ShortField
+from scapy.packet import Packet
+from scapy.config import conf
+
+# RFC 5175 - IPv6 Router Advertisement Flags Option (Type 26)
+class ICMPv6NDOptRAFlags(Packet):
+    name = "ICMPv6 Neighbor Discovery Option - RA Flags"
+    fields_desc = [
+        ByteEnumField("type", 26, icmp6ndopts),
+        ByteField("len", 1),
+        BitField("flags", 0, 48),
+    ]
+
+    def extract_padding(self, p):
+        return b"", p
+
+    def default_payload_class(self, p):
+        return conf.padding_layer
+
+# RFC 8910 / RFC 7710 - Captive-Portal Option (Type 37)
+class ICMPv6NDOptCaptivePortal(Packet):
+    name = "ICMPv6 Neighbor Discovery Option - Captive Portal"
+    fields_desc = [
+        ByteEnumField("type", 37, icmp6ndopts),
+        ByteField("len", None),
+        StrField("uri", ""),
+    ]
+
+    def post_build(self, p, pay):
+        uri_val = self.getfieldval("uri")
+        uri_bytes = uri_val.encode('utf-8') if isinstance(uri_val, str) else (uri_val or b"")
+        opt_len = self.len if self.len is not None else ((len(uri_bytes) + 2 + 7) // 8)
+        pad_len = max(0, (opt_len * 8) - 2 - len(uri_bytes))
+        p = bytes([p[0], opt_len]) + uri_bytes + (b'\x00' * pad_len)
+        return p + pay
+
+    def extract_padding(self, p):
+        if self.len:
+            opt_total_len = self.len * 8
+            uri_and_pad_len = max(0, opt_total_len - 2)
+            return p[:uri_and_pad_len], p[uri_and_pad_len:]
+        return p, b""
+
+    def default_payload_class(self, p):
+        return conf.padding_layer
+
+try:
+    from scapy.layers.inet6 import _nd_opt_cls
+    _nd_opt_cls[26] = ICMPv6NDOptRAFlags
+    _nd_opt_cls[37] = ICMPv6NDOptCaptivePortal
+except Exception:
+    pass
 import time
 from src.csv_process import Flood, has_data_csv
 from src.utils import ValidationUtils
@@ -17,7 +69,7 @@ import random
 stop_sending = False
 
 class ActiveScanner:
-    def __init__(self, duration, advertisement_interval, interface, src_MAC, dst_MAC, src_IP, dst_IP, M_flag, O_flag, H_flag, P_flag, Res_flag, snac_flag, Prf_flag, Router_lifetime, Reachable_time, Retrans_timer, Cur_hop_limit, Prefix=None, L_flag=None, A_flag=None, RAF_flag=None, PD_flag=None, Valid_lifetime=None, Preferred_lifetime=None, MTU=None, DNS_search_list=None, DNS_server=None, Route_info=None, DNS_lifetime=None, flood=None, flood_interval=None, Pref64=None, Pref64_lifetime=None, PLC=None):
+    def __init__(self, duration, advertisement_interval, interface, src_MAC, dst_MAC, src_IP, dst_IP, M_flag, O_flag, H_flag, P_flag, Res_flag, snac_flag, Prf_flag, Router_lifetime, Reachable_time, Retrans_timer, Cur_hop_limit, Prefix=None, L_flag=None, A_flag=None, RAF_flag=None, PD_flag=None, pres1=0, pres2=0, Valid_lifetime=None, Preferred_lifetime=None, MTU=None, DNS_search_list=None, DNS_server=None, Route_info=None, DNS_lifetime=None, flood=None, flood_interval=None, Pref64=None, Pref64_lifetime=None, PLC=None, ra_flags=None, hainfo=False, ha_pref=None, ha_lifetime=None, ha_res=None, cportal=None):
         self.duration = duration
         self.advertisement_interval = advertisement_interval
         self.interface = interface
@@ -41,6 +93,8 @@ class ActiveScanner:
         self.A_flag = A_flag
         self.RAF_flag = RAF_flag
         self.PD_flag = PD_flag
+        self.pres1 = pres1 if pres1 is not None else 0
+        self.pres2 = pres2 if pres2 is not None else 0
         self.Valid_lifetime = Valid_lifetime
         self.Preferred_lifetime = Preferred_lifetime
         self.DNS_search_list = DNS_search_list
@@ -53,6 +107,12 @@ class ActiveScanner:
         self.Pref64 = Pref64
         self.Pref64_lifetime = Pref64_lifetime
         self.PLC = PLC
+        self.ra_flags = ra_flags
+        self.hainfo = hainfo
+        self.ha_pref = ha_pref
+        self.ha_lifetime = ha_lifetime
+        self.ha_res = ha_res
+        self.cportal = cportal
 
     def generate_random_mac():
         return "02:00:00:%02x:%02x:%02x" % (random.randint(0, 255), random.randint(0, 255), random.randint(0, 255))
@@ -113,13 +173,15 @@ class ActiveScanner:
         if self.Prefix is not None:
             prefix, prefixlen = ValidationUtils.get_ipv6_prefix_details(self.Prefix)
             if prefix is not None or prefixlen is not None:
+                prefix_res1 = (16 if self.PD_flag else 0) | (self.pres1 & 0x0F)
                 options.append(ICMPv6NDOptPrefixInfo(
                     prefix=prefix,
                     prefixlen=prefixlen,
                     L=self.L_flag,
                     A=self.A_flag,
                     R=1 if self.RAF_flag else 0,
-                    res1=16 if self.PD_flag else 0,
+                    res1=prefix_res1,
+                    res2=self.pres2,
                     validlifetime=self.Valid_lifetime,
                     preferredlifetime=self.Preferred_lifetime
                 ))
@@ -145,6 +207,18 @@ class ActiveScanner:
                 plc=self.PLC,
                 prefix=self.Pref64
             ))
+
+        if self.ra_flags is not None:
+            options.append(ICMPv6NDOptRAFlags(flags=self.ra_flags))
+
+        if self.hainfo or self.ha_pref is not None or self.ha_lifetime is not None or self.ha_res is not None:
+            ha_res = self.ha_res if self.ha_res is not None else 0
+            ha_pref = self.ha_pref if self.ha_pref is not None else 0
+            ha_lifetime = self.ha_lifetime if self.ha_lifetime is not None else 300
+            options.append(ICMPv6NDOptHAInfo(res=ha_res, pref=ha_pref, lifetime=ha_lifetime))
+
+        if self.cportal is not None:
+            options.append(ICMPv6NDOptCaptivePortal(uri=self.cportal))
 
         # Construct the full packet
         packet = ether / ipv6 / ra
@@ -312,13 +386,15 @@ class ActiveScanner:
             if self.Prefix is not None:
                 prefix, prefixlen = ValidationUtils.get_ipv6_prefix_details(self.Prefix)
                 if prefix is not None or prefixlen is not None:
+                    prefix_res1 = (16 if self.PD_flag else 0) | (self.pres1 & 0x0F)
                     options.append(ICMPv6NDOptPrefixInfo(
                         prefix=prefix,
                         prefixlen=prefixlen,
                         L=self.L_flag,
                         A=self.A_flag,
                         R=1 if self.RAF_flag else 0,
-                        res1=16 if self.PD_flag else 0,
+                        res1=prefix_res1,
+                        res2=self.pres2,
                         validlifetime=0,      # Set Valid Lifetime to 0
                         preferredlifetime=0   # Set Preferred Lifetime to 0
                     ))
@@ -338,6 +414,17 @@ class ActiveScanner:
 
             if self.Pref64 is not None:
                 options.append(ICMPv6NDOptPREF64(scaledlifetime=0, plc=self.PLC, prefix=self.Pref64))
+
+            if self.ra_flags is not None:
+                options.append(ICMPv6NDOptRAFlags(flags=self.ra_flags))
+
+            if self.hainfo or self.ha_pref is not None or self.ha_lifetime is not None or self.ha_res is not None:
+                ha_res = self.ha_res if self.ha_res is not None else 0
+                ha_pref = self.ha_pref if self.ha_pref is not None else 0
+                options.append(ICMPv6NDOptHAInfo(res=ha_res, pref=ha_pref, lifetime=0))
+
+            if self.cportal is not None:
+                options.append(ICMPv6NDOptCaptivePortal(uri=self.cportal))
 
             # Construct the full packet
             packet = ether / ipv6 / ra
